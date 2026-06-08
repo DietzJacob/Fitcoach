@@ -8,3 +8,4 @@ dist-ssr
 .firebase
 .DS_Store
 npm-debug.log*
+.github/

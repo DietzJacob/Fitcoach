@@ -5,28 +5,31 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import { buildSession } from '../engine/planner.js'
 import { exerciseById } from '../data/exercises.js'
 import { daMuscle } from '../data/da.js'
-import { streakInfo, deloadSignal } from '../engine/analytics.js'
+import { streakInfo, deloadSignal, muscleRecovery } from '../engine/analytics.js'
 import { weekIndex, lastSessionMuscles } from '../hooks/useSessionContext.js'
 import MuscleIndicator from '../components/MuscleIndicator.jsx'
 import BodyMap from '../components/BodyMap.jsx'
-import EquipmentSheet from '../components/EquipmentSheet.jsx'
+import SettingsSheet from '../components/SettingsSheet.jsx'
 
 const LOC = { home: 'Hjemme', summerhouse: 'Sommerhus', bodyweight: 'Kropsvægt' }
 const GREET = () => { const h = new Date().getHours(); return h < 10 ? 'Godmorgen' : h < 17 ? 'God dag' : 'God aften' }
 
 export default function Dashboard() {
   const nav = useNavigate()
-  const { signOut } = useAuth()
+  const { signOut, user } = useAuth()
   const { profile, sessions, states, saveProfile } = useStore()
+  const name = profile.name || user?.displayName || (user?.email ? user.email.split('@')[0] : '')
   const [location, setLocation] = useState(profile.location)
   const [duration, setDuration] = useState(profile.defaultDuration)
-  const [showEquip, setShowEquip] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [weightBias, setWeightBias] = useState(location === 'bodyweight' ? 0 : 0.6)
   const [shuffle, setShuffle] = useState(0)
 
   const wk = weekIndex(profile.startDate)
   const deload = useMemo(() => deloadSignal(sessions, states), [sessions, states])
   const { streak } = useMemo(() => streakInfo(sessions), [sessions])
+  const recovery = useMemo(() => muscleRecovery(sessions), [sessions])
+  const fatigued = Object.entries(recovery).filter(([m, v]) => m !== 'Full body' && v < 95).sort((a, b) => a[1] - b[1]).slice(0, 4)
 
   const session = useMemo(() => buildSession({
     location, duration, weekIndex: wk, experience: profile.experience,
@@ -48,9 +51,9 @@ export default function Dashboard() {
       <div className="row between" style={{ marginBottom: 14 }}>
         <div>
           <div className="muted" style={{ textTransform: 'capitalize', fontSize: '.85rem' }}>{today}</div>
-          <h1>{GREET()}, Jacob 👋</h1>
+          <h1>{GREET()}{name ? `, ${name}` : ''} 👋</h1>
         </div>
-        <button className="icon-btn" onClick={() => setShowEquip(true)} title="Udstyr & vægte">⚙️</button>
+        <button className="icon-btn" onClick={() => setShowSettings(true)} title="Indstillinger">⚙️</button>
       </div>
 
       {/* HERO — today's workout */}
@@ -83,6 +86,30 @@ export default function Dashboard() {
         <input type="range" min="0" max="100" step="10" value={Math.round(weightBias * 100)}
           onChange={(e) => setWeightBias(+e.target.value / 100)}
           style={{ width: '100%', minHeight: 0, padding: 0, accentColor: 'var(--teal)', background: 'transparent', border: 'none', marginTop: 6 }} />
+      </div>
+
+      {/* Muscle recovery (Fitbod-style freshness) */}
+      <div className="card">
+        <div className="row between"><h3 style={{ margin: 0 }}>Restitution</h3><span className="muted" style={{ fontSize: '.78rem' }}>friskhed pr. muskel</span></div>
+        {fatigued.length === 0 ? (
+          <p className="muted" style={{ margin: '10px 0 0' }}>💪 Alle muskelgrupper er friske — klar til en hård dag.</p>
+        ) : (
+          <div className="stack" style={{ marginTop: 10 }}>
+            {fatigued.map(([m, v]) => (
+              <div key={m}>
+                <div className="row between" style={{ marginBottom: 4 }}>
+                  <span style={{ fontSize: '.85rem', fontWeight: 600 }}>{daMuscle(m)}</span>
+                  <span className="faint" style={{ fontSize: '.78rem' }}>{Math.round(v)}%</span>
+                </div>
+                <div style={{ height: 7, background: 'rgba(255,255,255,.08)', borderRadius: 99 }}>
+                  <div style={{ height: '100%', width: `${v}%`, borderRadius: 99,
+                    background: v < 50 ? 'var(--coral)' : v < 80 ? 'var(--gold)' : 'var(--grad)' }} />
+                </div>
+              </div>
+            ))}
+            <p className="faint" style={{ fontSize: '.76rem', margin: '2px 0 0' }}>Programmet undgår automatisk de mindst restituerede muskler i dag.</p>
+          </div>
+        )}
       </div>
 
       {deload.suggest && (
@@ -121,7 +148,7 @@ export default function Dashboard() {
 
       <button className="btn-ghost btn-block faint" style={{ marginTop: 16 }} onClick={() => signOut()}>Log ud</button>
 
-      {showEquip && <EquipmentSheet profile={profile} onSave={(w) => { saveProfile({ weights: w }); setShowEquip(false) }} onClose={() => setShowEquip(false)} />}
+      {showSettings && <SettingsSheet profile={profile} onSave={(patch) => { saveProfile(patch); setShowSettings(false) }} onClose={() => setShowSettings(false)} />}
     </div>
   )
 }

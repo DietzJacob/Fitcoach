@@ -46,7 +46,7 @@ export default function Library() {
                   </div>
                 </div>
               </div>
-              {open === ex.id && <p className="muted fadeIn" style={{ margintop: 10, marginBottom: 0, paddingTop: 10 }}>{ex.cues}</p>}
+              {open === ex.id && <p className="muted fadeIn" style={{ marginTop: 10, marginBottom: 0, paddingTop: 10 }}>{ex.cues}</p>}
             </div>
           )
         })}

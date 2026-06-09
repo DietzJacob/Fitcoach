@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { buildSession } from '../engine/planner.js'
 import { exerciseById, EQUIP_LABEL, suggestLoad, usesWeight, alternativesFor } from '../data/exercises.js'
 import { daMuscle } from '../data/da.js'
-import { personalRecords, estimatePR } from '../engine/analytics.js'
+import { personalRecords, estimatePR, lastPerformance, newPRsFrom } from '../engine/analytics.js'
 import { weekIndex, lastSessionMuscles } from '../hooks/useSessionContext.js'
 import MuscleIndicator from '../components/MuscleIndicator.jsx'
 import RestTimer from '../components/RestTimer.jsx'
@@ -14,6 +14,11 @@ const RPE = [
   { rir: 4, label: 'Let' }, { rir: 3, label: 'Fint' }, { rir: 2, label: 'Udfordrende' },
   { rir: 1, label: 'Hårdt' }, { rir: 0, label: 'Max' },
 ]
+const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms) } catch {} }
+const ago = (date) => {
+  const d = Math.floor((Date.now() - new Date(date)) / 86400000)
+  return d <= 0 ? 'i dag' : d === 1 ? 'i går' : `${d} dage siden`
+}
 
 export default function Session() {
   const nav = useNavigate()
@@ -28,41 +33,78 @@ export default function Session() {
   }), [])
   const [session, setSession] = useState(initial)
   const prs = useMemo(() => personalRecords(sessions), [sessions])
+  const startedAt = useRef(Date.now())
 
   const [exIdx, setExIdx] = useState(0)
   const [setIdx, setSetIdx] = useState(0)
   const [resting, setResting] = useState(false)
   const [showSwap, setShowSwap] = useState(false)
+  const [showLeave, setShowLeave] = useState(false)
   const [log, setLog] = useState(() => session.items.map((it) => ({ exerciseId: it.exerciseId, sets: [] })))
 
   const item = session.items[exIdx]
   const ex = exerciseById(item.exerciseId)
+  const last = useMemo(() => lastPerformance(sessions, ex.id), [sessions, ex.id])
+
   const [reps, setReps] = useState(item.targetReps)
-  const [weight, setWeight] = useState(suggestLoad(ex, owned))
+  const [weight, setWeight] = useState(() => last?.weight ?? suggestLoad(ex, owned))
   const [rir, setRir] = useState(2)
+  const [rpePicked, setRpePicked] = useState(false)
 
   const estMax = prs[ex.id]?.score || (usesWeight(ex) ? estimatePR(weight, item.repMax) : null)
   const totalSets = item.sets
   const isLastSet = setIdx + 1 >= totalSets
   const isLastEx = exIdx + 1 >= session.items.length
+  const loggedCount = log.reduce((a, l) => a + l.sets.length, 0)
+
+  // Keep the screen awake during the workout.
+  useEffect(() => {
+    let lock
+    const acquire = async () => { try { lock = await navigator.wakeLock?.request('screen') } catch {} }
+    acquire()
+    const onVis = () => { if (document.visibilityState === 'visible') acquire() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { try { lock && lock.release() } catch {}; document.removeEventListener('visibilitychange', onVis) }
+  }, [])
 
   const goTo = (ni, item2) => {
     const nx = exerciseById(item2.exerciseId)
+    const lp = lastPerformance(sessions, nx.id)
     setExIdx(ni); setSetIdx(0)
-    setReps(item2.targetReps); setWeight(suggestLoad(nx, owned)); setRir(2)
+    setReps(item2.targetReps); setWeight(lp?.weight ?? suggestLoad(nx, owned)); setRir(2); setRpePicked(false)
   }
 
   const logSet = () => {
+    buzz(30)
     setLog((prev) => { const n = prev.map((p) => ({ ...p, sets: [...p.sets] })); n[exIdx].sets.push({ reps, weight, rir }); return n })
     setResting(true)
   }
   const afterRest = () => {
     setResting(false)
+    setRpePicked(false)
     if (!isLastSet) { setSetIdx((s) => s + 1); return }
     if (!isLastEx) goTo(exIdx + 1, session.items[exIdx + 1])
     else finish()
   }
-  const finish = async () => { await completeSession(session, log.filter((l) => l.sets.length)); nav('/progress', { state: { justFinished: true } }) }
+
+  const finish = async () => {
+    const loggedFiltered = log.filter((l) => l.sets.length)
+    const finished = { ...session, items: session.items.map((it) => {
+      const l = loggedFiltered.find((x) => x.exerciseId === it.exerciseId)
+      return { ...it, logged: l ? l.sets : [] }
+    }) }
+    const prHits = newPRsFrom(sessions, finished)
+    const totalSets = loggedFiltered.reduce((a, l) => a + l.sets.length, 0)
+    const totalVolume = loggedFiltered.reduce((a, l) => a + l.sets.reduce((x, s) => x + (s.weight || 0) * (s.reps || 0), 0), 0)
+    const muscles = {}
+    finished.items.forEach((it) => { const e = exerciseById(it.exerciseId); if (e && it.logged.length) muscles[e.muscles[0]] = (muscles[e.muscles[0]] || 0) + it.logged.length })
+    const durationMin = Math.max(1, Math.round((Date.now() - startedAt.current) / 60000))
+    buzz([60, 40, 120])
+    await completeSession(session, loggedFiltered)
+    nav('/session/done', { state: { summary: { durationMin, totalSets, totalVolume, muscles, prs: prHits, phaseLabel: session.phaseLabel } } })
+  }
+
+  const tryLeave = () => { if (loggedCount > 0) setShowLeave(true); else nav('/') }
 
   const swapTo = (newId) => {
     const items = session.items.map((it, i) => i === exIdx ? { ...it, exerciseId: newId } : it)
@@ -88,7 +130,7 @@ export default function Session() {
   return (
     <div className="app fadeIn" style={{ paddingTop: 16 }}>
       <div className="row between">
-        <button className="icon-btn" onClick={() => nav('/')}>✕</button>
+        <button className="icon-btn" onClick={tryLeave}>✕</button>
         <span className="muted" style={{ fontSize: '.85rem' }}>Øvelse {exIdx + 1}/{session.items.length} · Sæt {setIdx + 1}/{totalSets}</span>
         <span className="pill lime">{session.phaseLabel}</span>
       </div>
@@ -112,6 +154,13 @@ export default function Session() {
       </div>
 
       <div className="card">
+        {/* Last-time reference */}
+        <div className="row between" style={{ marginBottom: 10 }}>
+          <span className="faint" style={{ fontSize: '.8rem', fontWeight: 600 }}>↩︎ Sidste gang</span>
+          {last
+            ? <span className="pill cyan">{last.weight ? `${last.weight} kg × ${last.reps}` : `${last.reps} reps`} · RIR {last.rir ?? '–'} · {ago(last.date)}</span>
+            : <span className="faint" style={{ fontSize: '.8rem' }}>Første gang — sæt en baseline 💪</span>}
+        </div>
         <div className="center" style={{ marginBottom: 6 }}>
           <label>Reps</label>
           <div className="stepper" style={{ justifyContent: 'center' }}>
@@ -130,7 +179,7 @@ export default function Session() {
         <label>Hvor hårdt var sættet?</label>
         <div className="rpe-grid">
           {RPE.map((o) => (
-            <button key={o.rir} className={rir === o.rir ? 'on' : ''} onClick={() => setRir(o.rir)}>
+            <button key={o.rir} className={rpePicked && rir === o.rir ? 'on' : ''} onClick={() => { setRir(o.rir); setRpePicked(true); buzz(15) }}>
               <span style={{ fontWeight: 800, fontSize: '.85rem' }}>{o.label}</span>
               <span style={{ fontSize: '.62rem', opacity: .7 }}>RIR {o.rir}</span>
             </button>
@@ -160,6 +209,22 @@ export default function Session() {
                   <span className="pill cyan">Vælg</span>
                 </button>
               ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {showLeave && (
+        <>
+          <div className="sheet-bg" onClick={() => setShowLeave(false)} />
+          <div className="sheet">
+            <div className="grab" />
+            <h2>Forlad træning?</h2>
+            <p className="muted">Du har logget {loggedCount} sæt. Vil du gemme det som en færdig træning, eller kassere?</p>
+            <div className="stack" style={{ marginTop: 12 }}>
+              <button className="btn-primary btn-lg" onClick={finish}>Gem & afslut</button>
+              <button className="btn-danger btn-lg" onClick={() => nav('/')}>Kassér træning</button>
+              <button className="btn-ghost btn-block faint" onClick={() => setShowLeave(false)}>Fortsæt træning</button>
             </div>
           </div>
         </>

@@ -5,6 +5,7 @@ import Login from './pages/Login.jsx'
 import Onboarding from './pages/Onboarding.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Session from './pages/Session.jsx'
+import Summary from './pages/Summary.jsx'
 import Progress from './pages/Progress.jsx'
 import Library from './pages/Library.jsx'
 
@@ -27,13 +28,14 @@ export default function App() {
       <span className="ico">{ico}</span><span>{label}</span>
     </NavLink>
   )
-  const hideNav = loc.pathname.startsWith('/session/live')
+  const hideNav = loc.pathname.startsWith('/session/')
 
   return (
     <>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/session/live" element={<Session />} />
+        <Route path="/session/done" element={<Summary />} />
         <Route path="/progress" element={<Progress />} />
         <Route path="/library" element={<Library />} />
         <Route path="*" element={<Navigate to="/" />} />

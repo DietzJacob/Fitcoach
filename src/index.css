@@ -14,7 +14,7 @@
   --glass-hi: rgba(255,255,255,.05);
   --text: #f4f7fc;
   --muted: #9aa6be;
-  --faint: #5f6b83;
+  --faint: #7a87a0;
 
   /* brand */
   --lime: #c9fb50;
@@ -206,3 +206,9 @@ label { font-size: .82rem; color: var(--muted); display: block; margin-bottom: 7
 /* rest timer */
 .timer-wrap { display: grid; place-items: center; }
 .timer-num { font-family: 'Sora'; font-size: 3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* confetti (post-workout summary) */
+@keyframes confetti {
+  0% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(105vh) rotate(540deg); opacity: 0; }
+}

@@ -2,17 +2,24 @@
 // no asset needed). Large + readable for mid-set glances.
 import { useEffect, useRef, useState } from 'react'
 
-function beep() {
+// Three rising tones + a vibration so you notice it even with music in your ears
+// and the phone in your pocket.
+function alertDone() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
-    const o = ctx.createOscillator(); const g = ctx.createGain()
-    o.connect(g); g.connect(ctx.destination)
-    o.type = 'sine'; o.frequency.value = 880
-    g.gain.setValueAtTime(0.001, ctx.currentTime)
-    g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + 0.02)
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
-    o.start(); o.stop(ctx.currentTime + 0.5)
+    const tones = [660, 880, 1175]
+    tones.forEach((f, i) => {
+      const t = ctx.currentTime + i * 0.18
+      const o = ctx.createOscillator(); const g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.type = 'sine'; o.frequency.value = f
+      g.gain.setValueAtTime(0.001, t)
+      g.gain.exponentialRampToValueAtTime(0.5, t + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.16)
+      o.start(t); o.stop(t + 0.18)
+    })
   } catch {}
+  try { navigator.vibrate && navigator.vibrate([120, 60, 120, 60, 200]) } catch {}
 }
 
 export default function RestTimer({ seconds = 90, onDone }) {
@@ -24,7 +31,7 @@ export default function RestTimer({ seconds = 90, onDone }) {
     if (!running) return
     ref.current = setInterval(() => {
       setLeft((l) => {
-        if (l <= 1) { clearInterval(ref.current); beep(); onDone && onDone(); return 0 }
+        if (l <= 1) { clearInterval(ref.current); alertDone(); onDone && onDone(); return 0 }
         return l - 1
       })
     }, 1000)

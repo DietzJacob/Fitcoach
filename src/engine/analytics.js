@@ -11,9 +11,13 @@ export function weeklyVolume(sessions, since = weekAgo(1)) {
     for (const it of s.items || []) {
       const ex = exerciseById(it.exerciseId)
       if (!ex) continue
-      const sets = (it.logged || it.sets || []).length || it.sets || 0
+      // Only count sets the trainee actually LOGGED. The old expression fell back
+      // to the planned set count when `logged` was missing, so the deload signal
+      // could fire off the plan rather than off real training.
+      const sets = Array.isArray(it.logged) ? it.logged.length : 0
+      if (!sets) continue
       const m = ex.muscles[0]
-      vol[m] = (vol[m] || 0) + (typeof sets === 'number' ? sets : 0)
+      vol[m] = (vol[m] || 0) + sets
     }
   }
   return vol
@@ -80,68 +84,4 @@ function weekAgo(n) {
   const d = new Date()
   d.setDate(d.getDate() - 7 * n)
   return d
-}
-
-// --- v2 helpers --------------------------------------------------------------
-
-// The most recent logged performance of an exercise (best set of the last
-// session that included it) — powers the "Sidst: 8 kg × 10 @ RIR 1" reference.
-export function lastPerformance(sessions, exerciseId) {
-  for (let i = sessions.length - 1; i >= 0; i--) {
-    const it = (sessions[i].items || []).find((x) => x.exerciseId === exerciseId)
-    const sets = it && (it.logged || [])
-    if (sets && sets.length) {
-      // pick the heaviest set (or most reps if bodyweight)
-      const best = [...sets].sort((a, b) =>
-        (b.weight || 0) - (a.weight || 0) || (b.reps || 0) - (a.reps || 0))[0]
-      return { ...best, date: sessions[i].date, sets: sets.length }
-    }
-  }
-  return null
-}
-
-// Per-muscle "freshness" 0-100% (Fitbod-style). 0 = just trained hard,
-// 100 = fully recovered. Linear recovery over ~48h, scaled by recent volume.
-export function muscleRecovery(sessions) {
-  const RECOVERY_H = 48
-  const now = Date.now()
-  const rec = {}
-  // initialise everything fresh
-  ;['Quadriceps','Hamstrings','Glutes','Calves','Chest','Back','Shoulders','Biceps','Triceps','Core','Full body']
-    .forEach((m) => (rec[m] = 100))
-  for (const s of sessions) {
-    const hours = (now - new Date(s.date).getTime()) / 36e5
-    if (hours > RECOVERY_H) continue
-    for (const it of s.items || []) {
-      const ex = exerciseById(it.exerciseId); if (!ex) continue
-      const sets = (it.logged || []).length || 0
-      if (!sets) continue
-      const fatigue = Math.min(100, sets * 18)            // ~3 sæt = stor belastning
-      const recovered = (hours / RECOVERY_H) * 100
-      const remaining = Math.max(0, fatigue - (fatigue * recovered) / 100)
-      const m = ex.muscles[0]
-      rec[m] = Math.max(0, Math.min(rec[m] ?? 100, 100 - remaining))
-    }
-  }
-  return rec // { muscle: 0..100 }
-}
-
-// New PRs set during a specific session's logged data, vs. all prior history.
-export function newPRsFrom(priorSessions, finishedSession) {
-  const prior = personalRecords(priorSessions)
-  const hits = []
-  for (const it of finishedSession.items || []) {
-    for (const set of it.logged || []) {
-      const score = estimatePR(set.weight || 0, set.reps || 0)
-      const prev = prior[it.exerciseId]
-      if (!prev || score > prev.score) {
-        const ex = exerciseById(it.exerciseId)
-        const existing = hits.find((h) => h.id === it.exerciseId)
-        const entry = { id: it.exerciseId, name: ex?.name || it.exerciseId, weight: set.weight || 0, reps: set.reps || 0, score }
-        if (!existing) hits.push(entry)
-        else if (score > existing.score) Object.assign(existing, entry)
-      }
-    }
-  }
-  return hits
 }

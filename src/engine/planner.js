@@ -4,7 +4,7 @@
 // emphasis so the same muscle isn't smashed two days running, and tags the
 // current periodization phase + deloads.
 // ============================================================================
-import { REP_ZONES, MESOCYCLE, DELOAD_EVERY_WEEKS, TIMING } from './config.js'
+import { REP_ZONES, MESOCYCLE, TIMING } from './config.js'
 import { exercisesForLocation, usesWeight } from '../data/exercises.js'
 import { initExerciseState, progressExercise, prescription } from './progression.js'
 
@@ -38,11 +38,15 @@ function timePlan(duration, zone) {
 }
 
 // Which periodization phase are we in? weekIndex counts training weeks from start.
+// One block = the 4 mesocycle weeks + 1 deload week (5 total). Using a single
+// 5-week modulus keeps hyper→styrke→hyper→endur aligned in every block — the old
+// code mixed a 4-week phase cycle with a 5-week deload cycle, so the phase order
+// drifted one step per block.
 export function phaseForWeek(weekIndex) {
-  if ((weekIndex + 1) % DELOAD_EVERY_WEEKS === 0) {
+  const blockWeek = weekIndex % (MESOCYCLE.length + 1) // 0..4
+  if (blockWeek === MESOCYCLE.length) {
     return { zone: 'hyper', deload: true, label: 'Deload-uge' }
   }
-  const blockWeek = weekIndex % MESOCYCLE.length
   const zoneKey = MESOCYCLE[blockWeek]
   return { zone: zoneKey, deload: false, label: REP_ZONES[zoneKey].label }
 }

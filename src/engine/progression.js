@@ -51,6 +51,19 @@ export function progressExercise(state, lastSets, exercise, zoneKey) {
 
   // Hit the top of the range with low reserve? Count it as a qualifying session.
   const hitTop = top >= zone.max && rir != null && rir <= zone.rir
+  // Topped the range with LOTS in reserve (RIR 3+)? The load is simply too easy —
+  // without this branch the trainee could cruise at top reps forever, because
+  // qualifying always required low RIR. Advance the ladder immediately.
+  const cruisingTop = top >= zone.max && rir != null && rir >= 3
+  if (cruisingTop) {
+    next.consecutiveHits = 0
+    const adv = advanceLadder(next, zone, exercise)
+    // Ladder notes assume the classic "topped twice with low RIR" path — replace
+    // that framing with the real reason (too easy) and keep the "what changes" part.
+    const what = adv.note.replace(/^Du toppede .*?lav RIR\.\s*/, '')
+    adv.note = `Du nåede ${top} reps med ~${Math.round(rir)} i reserve — for let ved denne belastning. ${what}`
+    return adv
+  }
   if (hitTop) {
     next.consecutiveHits = (state.consecutiveHits || 0) + 1
   } else if (top >= zone.min) {
@@ -124,5 +137,6 @@ export function prescription(state, zone) {
   if (state.tempo > 2) parts.push(`${state.tempo}s negativ`)
   if (state.pauseSec) parts.push(`${state.pauseSec}s pause`)
   if (state.deficit) parts.push('fuld ROM/deficit')
+  if (state.rest && state.rest < z.rest) parts.push(`kun ${state.rest}s pause (density)`)
   return { reps, repMax: z.max, rest: state.rest || z.rest, detail: parts.join(' · '), rung: LADDER[state.rung], rungLabel: LADDER_LABEL[LADDER[state.rung]] }
 }
